@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { useFormValidation, required, isEmail } from '../hooks/useFormValidation';
+import { useFormValidation, required, isEmail, minLength, matchField } from '../hooks/useFormValidation';
 import ValidatedInput from '../components/ValidatedInput';
+import PasswordStrength from '../components/PasswordStrength';
 import { COLORS, FONT_SIZE, BORDER_RADIUS, SPACING } from '../constants/theme';
-import type { LoginScreenProps } from '../types';
+import type { SignupScreenProps } from '../types';
 
-export default function LoginScreen({ navigation }: LoginScreenProps) {
-  const { signIn } = useAuth();
+export default function SignupScreen({ navigation }: SignupScreenProps) {
+  const { signUp } = useAuth();
   const { colors } = useTheme();
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -20,37 +21,41 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     },
     password: {
       value: '',
-      rules: [required('비밀번호')],
+      rules: [required('비밀번호'), minLength(6, '비밀번호')],
+    },
+    confirmPassword: {
+      value: '',
+      rules: [required('비밀번호 확인')],
     },
   });
 
-  const handleLogin = async () => {
+  // confirmPassword는 password 값에 의존하므로 동적 검증
+  const confirmError = useMemo(() => {
+    const confirm = form.getValue('confirmPassword');
+    const pw = form.getValue('password');
+    if (!confirm) return null;
+    return confirm === pw ? null : '비밀번호가 일치하지 않습니다.';
+  }, [form]);
+
+  const handleSignUp = async () => {
     const valid = form.validateAll();
     if (!valid) return;
+    if (confirmError) return;
 
     setErrorMsg('');
     setLoading(true);
-    const result = await signIn(form.getValue('email'), form.getValue('password'));
+    const result = await signUp(form.getValue('email'), form.getValue('password'));
     if (result.error) {
       setErrorMsg(result.error);
       setLoading(false);
       return;
     }
-    // 로그인 성공 → AuthContext가 상태 변경, App.tsx가 자동 전환
+    // 가입 성공 → 온보딩 플로우
+    navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
   };
 
-  // 빠른 로그인 (데모용)
-  const quickLogin = async (email: string) => {
-    form.setValue('email', email);
-    form.setValue('password', 'demo');
-    setErrorMsg('');
-    setLoading(true);
-    const result = await signIn(email, 'demo');
-    if (result.error) {
-      setErrorMsg(result.error);
-    }
-    setLoading(false);
-  };
+  const passwordValue = form.getValue('password');
+  const canSubmit = form.isValid && !confirmError;
 
   return (
     <KeyboardAvoidingView
@@ -67,8 +72,8 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         </Pressable>
 
         <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.gray900 }]}>로그인</Text>
-          <Text style={[styles.subtitle, { color: colors.gray500 }]}>다시 만나서 반가워요!</Text>
+          <Text style={[styles.title, { color: colors.gray900 }]}>회원가입</Text>
+          <Text style={[styles.subtitle, { color: colors.gray500 }]}>Common Ground에 오신 것을 환영합니다</Text>
         </View>
 
         <View style={styles.form}>
@@ -79,15 +84,29 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
             keyboardType="email-address"
             autoCapitalize="none"
             textContentType="emailAddress"
+            showSuccess
             returnKeyType="next"
           />
 
           <ValidatedInput
             {...form.field('password')}
             label="비밀번호"
-            placeholder="비밀번호를 입력하세요"
+            placeholder="6자 이상 입력하세요"
             secureTextEntry
-            textContentType="password"
+            textContentType="newPassword"
+            hint="영문, 숫자, 특수문자를 조합하면 더 안전해요"
+            returnKeyType="next"
+            bottomElement={<PasswordStrength password={passwordValue} />}
+          />
+
+          <ValidatedInput
+            {...form.field('confirmPassword')}
+            label="비밀번호 확인"
+            placeholder="비밀번호를 다시 입력하세요"
+            secureTextEntry
+            textContentType="newPassword"
+            showSuccess
+            error={confirmError || form.field('confirmPassword').error}
             returnKeyType="done"
           />
 
@@ -100,45 +119,23 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           <Pressable
             style={[
               styles.submitBtn,
-              (loading || !form.isValid) && styles.submitDisabled,
+              (loading || !canSubmit) && styles.submitDisabled,
             ]}
-            onPress={handleLogin}
-            disabled={loading || !form.isValid}
+            onPress={handleSignUp}
+            disabled={loading || !canSubmit}
             accessibilityRole="button"
-            accessibilityLabel={loading ? '로그인 중' : '로그인'}
-            accessibilityState={{ disabled: loading || !form.isValid }}
+            accessibilityLabel={loading ? '가입 중' : '가입하기'}
+            accessibilityState={{ disabled: loading || !canSubmit }}
           >
             <Text style={styles.submitText}>
-              {loading ? '로그인 중...' : '로그인'}
+              {loading ? '가입 중...' : '가입하기'}
             </Text>
           </Pressable>
         </View>
 
-        {/* 데모 빠른 로그인 */}
-        <View style={[styles.demoSection, { backgroundColor: colors.primaryBg }]}>
-          <Text style={[styles.demoTitle, { color: colors.primary }]}>🎮 데모 계정으로 시작</Text>
-          <View style={styles.demoButtons}>
-            {[
-              { email: 'alice@example.com', name: '민지' },
-              { email: 'bob@example.com', name: '준호' },
-              { email: 'eve@example.com', name: '유진' },
-            ].map(demo => (
-              <Pressable
-                key={demo.email}
-                style={[styles.demoBtn, { backgroundColor: colors.white, borderColor: colors.primaryLight }]}
-                onPress={() => quickLogin(demo.email)}
-                accessibilityRole="button"
-                accessibilityLabel={`${demo.name} 데모 계정으로 로그인`}
-              >
-                <Text style={[styles.demoBtnText, { color: colors.primary }]}>{demo.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <Pressable style={styles.linkBtn} onPress={() => navigation.navigate('Signup')} accessibilityRole="link" accessibilityLabel="회원가입 페이지로 이동">
+        <Pressable style={styles.linkBtn} onPress={() => navigation.navigate('Login')} accessibilityRole="link" accessibilityLabel="로그인 페이지로 이동">
           <Text style={[styles.linkText, { color: colors.gray500 }]}>
-            계정이 없으신가요? <Text style={[styles.linkBold, { color: colors.primary }]}>회원가입</Text>
+            이미 계정이 있으신가요? <Text style={[styles.linkBold, { color: colors.primary }]}>로그인</Text>
           </Text>
         </Pressable>
       </ScrollView>
@@ -189,37 +186,6 @@ const styles = StyleSheet.create({
   },
   submitDisabled: { opacity: 0.6 },
   submitText: { color: '#fff', fontSize: FONT_SIZE.lg, fontWeight: '700' },
-  demoSection: {
-    marginTop: 32,
-    padding: 16,
-    backgroundColor: COLORS.primaryBg,
-    borderRadius: BORDER_RADIUS.md,
-    gap: 12,
-  },
-  demoTitle: {
-    fontSize: FONT_SIZE.sm,
-    fontWeight: '600',
-    color: COLORS.primary,
-    textAlign: 'center',
-  },
-  demoButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  demoBtn: {
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.primaryLight,
-    borderRadius: BORDER_RADIUS.sm,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  demoBtnText: {
-    fontSize: FONT_SIZE.sm,
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
   linkBtn: { alignItems: 'center', marginTop: 24 },
   linkText: { fontSize: FONT_SIZE.sm, color: COLORS.gray500 },
   linkBold: { color: COLORS.primary, fontWeight: '600' },
